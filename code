@@ -1,0 +1,232 @@
+import pygame
+import random
+import sys
+
+# 1. CONFIGURACIONES INICIALES
+pygame.init()
+
+# Dimensiones de la pantalla
+ANCHO = 800
+ALTO = 600
+
+# Colores (RGB)
+NEGRO = (10, 10, 18)
+BLANCO = (240, 240, 240)
+VERDE = (0, 255, 120)
+ROJO = (255, 50, 70)
+AMARILLO = (255, 215, 0)
+
+# Ventana y Reloj
+pantalla = pygame.display.set_mode((ANCHO, ALTO))
+pygame.display.set_caption("Retro Space Invaders")
+reloj = pygame.time.Clock()
+
+# Fuentes
+fuente_retro = pygame.font.SysFont("monospace", 24, bold=True)
+fuente_grande = pygame.font.SysFont("monospace", 50, bold=True)
+
+
+# 2. CLASE NAVE JUGADOR
+class Jugador:
+    def __init__(self):
+        self.ancho = 50
+        self.alto = 30
+        self.x = ANCHO // 2 - self.ancho // 2
+        self.y = ALTO - 60
+        self.velocidad = 7
+        self.rect = pygame.Rect(self.x, self.y, self.ancho, self.alto)
+
+    def mover(self, teclas):
+        if (teclas[pygame.K_LEFT] or teclas[pygame.K_a]) and self.x > 0:
+            self.x -= self.velocidad
+        if (teclas[pygame.K_RIGHT] or teclas[pygame.K_d]) and self.x < ANCHO - self.ancho:
+            self.x += self.velocidad
+        self.rect.x = self.x
+
+    def dibujar(self, superficie):
+        # Cuerpo de la nave
+        pygame.draw.rect(superficie, VERDE, self.rect)
+        # Cañón superior
+        pygame.draw.rect(superficie, VERDE, (self.x + 20, self.y - 10, 10, 10))
+
+
+# 3. CLASE BALA
+class Bala:
+    def __init__(self, x, y):
+        self.ancho = 4
+        self.alto = 15
+        self.x = x + 23  # Centrada respecto a la nave
+        self.y = y - 10
+        self.velocidad = -10
+        self.rect = pygame.Rect(self.x, self.y, self.ancho, self.alto)
+
+    def mover(self):
+        self.y += self.velocidad
+        self.rect.y = self.y
+
+    def dibujar(self, superficie):
+        pygame.draw.rect(superficie, AMARILLO, self.rect)
+
+
+# 4. CLASE ENEMIGO (ALÍEN)
+class Enemigo:
+    def __init__(self, x, y):
+        self.ancho = 40
+        self.alto = 30
+        self.x = x
+        self.y = y
+        self.rect = pygame.Rect(self.x, self.y, self.ancho, self.alto)
+
+    def mover(self, dx, dy):
+        self.x += dx
+        self.y += dy
+        self.rect.x = self.x
+        self.rect.y = self.y
+
+    def dibujar(self, superficie):
+        pygame.draw.rect(superficie, ROJO, self.rect, border_radius=5)
+        # Ojos del alíen
+        pygame.draw.rect(superficie, NEGRO, (self.x + 8, self.y + 8, 6, 6))
+        pygame.draw.rect(superficie, NEGRO, (self.x + 26, self.y + 8, 6, 6))
+
+
+# 5. CONTROLADOR DEL JUEGO
+class Juego:
+    def __init__(self):
+        self.jugador = Jugador()
+        self.balas = []
+        self.enemigos = []
+        self.enemigo_dx = 3
+        self.enemigo_dy = 15
+        self.puntuacion = 0
+        self.vidas = 3
+        self.game_over = False
+        self.victoria = False
+        self.generar_enemigos()
+
+    def generar_enemigos(self):
+        self.enemigos.clear()
+        filas = 4
+        columnas = 10
+        for fila in range(filas):
+            for col in range(columnas):
+                x = 80 + col * 60
+                y = 50 + fila * 50
+                self.enemigos.append(Enemigo(x, y))
+
+    def actualizar(self, teclas):
+        if self.game_over or self.victoria:
+            return
+
+        # Mover Jugador
+        self.jugador.mover(teclas)
+
+        # Mover Balas
+        for bala in self.balas[:]:
+            bala.mover()
+            if bala.y < 0:
+                self.balas.remove(bala)
+
+        # Mover Enemigos
+        mover_hacia_abajo = False
+        for enemigo in self.enemigos:
+            if enemigo.x + self.enemigo_dx > ANCHO - enemigo.ancho or enemigo.x + self.enemigo_dx < 0:
+                mover_hacia_abajo = True
+                break
+
+        if mover_hacia_abajo:
+            self.enemigo_dx *= -1  # Cambia de dirección horizontal
+            for enemigo in self.enemigos:
+                enemigo.mover(0, self.enemigo_dy)
+        else:
+            for enemigo in self.enemigos:
+                enemigo.mover(self.enemigo_dx, 0)
+
+        # Comprobar Colisiones (Bala vs Enemigo)
+        for bala in self.balas[:]:
+            for enemigo in self.enemigos[:]:
+                if bala.rect.colliderect(enemigo.rect):
+                    if bala in self.balas:
+                        self.balas.remove(bala)
+                    if enemigo in self.enemigos:
+                        self.enemigos.remove(enemigo)
+                    self.puntuacion += 10
+                    break
+
+        # Verificar si quedan enemigos
+        if not self.enemigos:
+            self.victoria = True
+
+        # Verificar si un enemigo llegó abajo o tocó al jugador
+        for enemigo in self.enemigos:
+            if enemigo.rect.colliderect(self.jugador.rect) or enemigo.y >= ALTO - 100:
+                self.vidas -= 1
+                if self.vidas <= 0:
+                    self.game_over = True
+                else:
+                    self.generar_enemigos()  # Reinicia la horda actual si te tocan
+                break
+
+    def disparar(self):
+        if not self.game_over and not self.victoria:
+            # Limitar a un máximo de 3 balas simultáneas en pantalla para balancear
+            if len(self.balas) < 3:
+                self.balas.append(Bala(self.jugador.x, self.jugador.y))
+
+    def dibujar(self, superficie):
+        superficie.fill(NEGRO)
+
+        # Dibujar Elementos
+        self.jugador.dibujar(superficie)
+        for bala in self.balas:
+            bala.dibujar(superficie)
+        for enemigo in self.enemigos:
+            enemigo.dibujar(superficie)
+
+        # Interfaz de Usuario (HUD)
+        txt_puntos = fuente_retro.render(f"SCORE: {self.puntuacion}", True, BLANCO)
+        txt_vidas = fuente_retro.render(f"LIVES: {self.vidas}", True, BLANCO)
+        superficie.blit(txt_puntos, (20, 20))
+        superficie.blit(txt_vidas, (ANCHO - 150, 20))
+
+        # Mensajes de Fin de Juego
+        if self.game_over:
+            txt_game_over = fuente_grande.render("GAME OVER", True, ROJO)
+            txt_reiniciar = fuente_retro.render("Presiona R para reiniciar", True, BLANCO)
+            superficie.blit(txt_game_over, (ANCHO // 2 - txt_game_over.get_width() // 2, ALTO // 2 - 50))
+            superficie.blit(txt_reiniciar, (ANCHO // 2 - txt_reiniciar.get_width() // 2, ALTO // 2 + 20))
+            
+        elif self.victoria:
+            txt_victoria = fuente_grande.render("¡VICTORIA!", True, VERDE)
+            txt_reiniciar = fuente_retro.render("Presiona R para jugar de nuevo", True, BLANCO)
+            superficie.blit(txt_victoria, (ANCHO // 2 - txt_victoria.get_width() // 2, ALTO // 2 - 50))
+            superficie.blit(txt_reiniciar, (ANCHO // 2 - txt_reiniciar.get_width() // 2, ALTO // 2 + 20))
+
+
+# 6. BUCLE PRINCIPAL DEL SISTEMA
+def main():
+    juego = Juego()
+
+    while True:
+        teclas = pygame.key.get_pressed()
+
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+                
+            elif evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_SPACE:
+                    juego.disparar()
+                if (juego.game_over or juego.victoria) and evento.key == pygame.K_r:
+                    juego = Juego()  # Reinicia el estado del objeto juego
+
+        juego.actualizar(teclas)
+        juego.dibujar(pantalla)
+
+        pygame.display.update()
+        reloj.tick(60)  # Correr a 60 FPS estables
+
+
+if __name__ == "__main__":
+    main()
